@@ -5,13 +5,13 @@ public class Main {
     public static void main(String[] args) {
 
         try {
-
             Benchmark benchmark = new Benchmark();
-
             benchmark.run();
 
-        } catch (Exception e) {
+            PlotGenerator plotGenerator = new PlotGenerator();
+            plotGenerator.generateAllPlots();
 
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }

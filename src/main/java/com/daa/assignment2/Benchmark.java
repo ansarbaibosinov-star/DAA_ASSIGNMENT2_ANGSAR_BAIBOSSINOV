@@ -1,47 +1,53 @@
 package com.daa.assignment2;
 
-import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.io.PrintWriter;
+import java.util.Locale;
 import java.util.Random;
 
 public class Benchmark {
 
     private static final int[] SIZES = {
             100,
-            1_000,
-            10_000,
-            100_000
+            1000,
+            10000,
+            100000
     };
 
-    private static final int SEED = 42;
-
-    private static final int W1_OPERATIONS = 10_000;
-    private static final int W2_OPERATIONS = 1_000;
-    private static final int W3_OPERATIONS = 1_000;
+    private static final int W1_OPERATIONS = 10000;
+    private static final int W2_OPERATIONS = 1000;
+    private static final int W3_OPERATIONS = 1000;
 
     private static final int MEASURED_RUNS = 5;
-    private static final int TOTAL_RUNS = MEASURED_RUNS + 1;
 
-    private static final String CSV_PATH =
-            "results/results.csv";
+    private static final int RANDOM_SEED = 42;
+
+    private static final String RESULTS_DIRECTORY = "results";
+    private static final String CSV_FILE = "results/results.csv";
 
     public void run() throws IOException {
 
-        Path resultsDirectory = Paths.get("results");
+        File resultsDirectory =
+                new File(RESULTS_DIRECTORY);
 
-        Files.createDirectories(resultsDirectory);
+        if (!resultsDirectory.exists()) {
+            if (!resultsDirectory.mkdirs()) {
+                throw new IOException(
+                        "Could not create results directory."
+                );
+            }
+        }
 
-        try (BufferedWriter writer =
-                     Files.newBufferedWriter(Paths.get(CSV_PATH))) {
+        try (PrintWriter writer =
+                     new PrintWriter(
+                             new FileWriter(CSV_FILE)
+                     )) {
 
-            writer.write(
+            writer.println(
                     "workload,variant,structure,n,time_ms,steps,moves,comparisons"
             );
-
-            writer.newLine();
 
             runW1(writer);
             runW2(writer);
@@ -49,601 +55,755 @@ public class Benchmark {
             runW4(writer);
         }
 
-        System.out.println();
-        System.out.println("Benchmark finished.");
-        System.out.println("CSV saved to: " + CSV_PATH);
+        System.out.println(
+                "Benchmark completed successfully."
+        );
+
+        System.out.println(
+                "Results saved to: " + CSV_FILE
+        );
     }
 
-    // =========================================================
+    // ============================================================
     // W1 - RANDOM ACCESS
-    // =========================================================
+    // ============================================================
 
-    private void runW1(BufferedWriter writer) throws IOException {
+    private void runW1(PrintWriter writer) {
 
         System.out.println();
         System.out.println("===== W1 - Random Access =====");
 
         for (int n : SIZES) {
 
-            int[] data = generateData(n, SEED);
-            int[] indices = generateRandomIndices(
-                    n,
-                    W1_OPERATIONS,
-                    SEED
+            BenchmarkResult arrayResult =
+                    measureW1Array(n);
+
+            writeResult(
+                    writer,
+                    arrayResult
             );
 
-            BenchmarkResult arrayResult =
-                    benchmarkW1Array(data, indices, n);
-
-            writeResult(writer, arrayResult);
-
             BenchmarkResult listResult =
-                    benchmarkW1List(data, indices, n);
+                    measureW1List(n);
 
-            writeResult(writer, listResult);
+            writeResult(
+                    writer,
+                    listResult
+            );
         }
     }
 
-    private BenchmarkResult benchmarkW1Array(
-            int[] data,
-            int[] indices,
-            int n) {
+    private BenchmarkResult measureW1Array(int n) {
 
-        double[] times = new double[MEASURED_RUNS];
-        long[] steps = new long[MEASURED_RUNS];
-        long[] moves = new long[MEASURED_RUNS];
-        long[] comparisons = new long[MEASURED_RUNS];
+        double[] times =
+                new double[MEASURED_RUNS];
 
-        for (int run = 0; run < TOTAL_RUNS; run++) {
+        long finalSteps = 0;
+        long finalMoves = 0;
+        long finalComparisons = 0;
 
-            Metrics metrics = new Metrics();
-            DynamicArray array = new DynamicArray(metrics);
+        int[] data =
+                generateData(n);
 
-            fillArray(array, data);
+        int[] indices =
+                generateIndices(n, W1_OPERATIONS);
+
+        /*
+         * Warm-up run.
+         */
+        runW1ArrayOnce(
+                data,
+                indices,
+                false
+        );
+
+        /*
+         * Five measured runs.
+         */
+        for (int run = 0;
+             run < MEASURED_RUNS;
+             run++) {
+
+            Metrics metrics =
+                    new Metrics();
+
+            DynamicArray array =
+                    new DynamicArray(metrics);
+
+            fillArray(
+                    array,
+                    data
+            );
 
             metrics.reset();
 
             metrics.startTimer();
 
-            long checksum = 0;
+            for (int i = 0;
+                 i < W1_OPERATIONS;
+                 i++) {
 
-            for (int index : indices) {
-                checksum += array.get(index);
+                array.get(indices[i]);
             }
 
             metrics.stopTimer();
 
-            if (checksum == Long.MIN_VALUE) {
-                System.out.println("Impossible checksum.");
-            }
+            times[run] =
+                    metrics.getElapsedTimeMillis();
 
-            if (run > 0) {
+            finalSteps =
+                    metrics.getSteps();
 
-                int position = run - 1;
+            finalMoves =
+                    metrics.getMoves();
 
-                times[position] =
-                        metrics.getElapsedTimeMillis();
-
-                steps[position] =
-                        metrics.getSteps();
-
-                moves[position] =
-                        metrics.getMoves();
-
-                comparisons[position] =
-                        metrics.getComparisons();
-            }
+            finalComparisons =
+                    metrics.getComparisons();
         }
 
-        return createMedianResult(
+        return new BenchmarkResult(
                 "W1",
                 "-",
                 "DynamicArray",
                 n,
-                times,
-                steps,
-                moves,
-                comparisons
+                median(times),
+                finalSteps,
+                finalMoves,
+                finalComparisons
         );
     }
 
-    private BenchmarkResult benchmarkW1List(
-            int[] data,
-            int[] indices,
-            int n) {
+    private BenchmarkResult measureW1List(int n) {
 
-        double[] times = new double[MEASURED_RUNS];
-        long[] steps = new long[MEASURED_RUNS];
-        long[] moves = new long[MEASURED_RUNS];
-        long[] comparisons = new long[MEASURED_RUNS];
+        double[] times =
+                new double[MEASURED_RUNS];
 
-        for (int run = 0; run < TOTAL_RUNS; run++) {
+        long finalSteps = 0;
+        long finalMoves = 0;
+        long finalComparisons = 0;
 
-            Metrics metrics = new Metrics();
-            MyLinkedList list = new MyLinkedList(metrics);
+        int[] data =
+                generateData(n);
 
-            fillList(list, data);
+        int[] indices =
+                generateIndices(n, W1_OPERATIONS);
+
+        /*
+         * Warm-up run.
+         */
+        runW1ListOnce(
+                data,
+                indices,
+                false
+        );
+
+        /*
+         * Five measured runs.
+         */
+        for (int run = 0;
+             run < MEASURED_RUNS;
+             run++) {
+
+            Metrics metrics =
+                    new Metrics();
+
+            MyLinkedList list =
+                    new MyLinkedList(metrics);
+
+            fillList(
+                    list,
+                    data
+            );
 
             metrics.reset();
 
             metrics.startTimer();
 
-            long checksum = 0;
+            for (int i = 0;
+                 i < W1_OPERATIONS;
+                 i++) {
 
-            for (int index : indices) {
-                checksum += list.get(index);
+                list.get(indices[i]);
             }
 
             metrics.stopTimer();
 
-            if (checksum == Long.MIN_VALUE) {
-                System.out.println("Impossible checksum.");
-            }
+            times[run] =
+                    metrics.getElapsedTimeMillis();
 
-            if (run > 0) {
+            finalSteps =
+                    metrics.getSteps();
 
-                int position = run - 1;
+            finalMoves =
+                    metrics.getMoves();
 
-                times[position] =
-                        metrics.getElapsedTimeMillis();
-
-                steps[position] =
-                        metrics.getSteps();
-
-                moves[position] =
-                        metrics.getMoves();
-
-                comparisons[position] =
-                        metrics.getComparisons();
-            }
+            finalComparisons =
+                    metrics.getComparisons();
         }
 
-        return createMedianResult(
+        return new BenchmarkResult(
                 "W1",
                 "-",
                 "MyLinkedList",
                 n,
-                times,
-                steps,
-                moves,
-                comparisons
+                median(times),
+                finalSteps,
+                finalMoves,
+                finalComparisons
         );
     }
 
-    // =========================================================
+    // ============================================================
     // W2 - SEARCH
-    // =========================================================
+    // ============================================================
 
-    private void runW2(BufferedWriter writer) throws IOException {
+    private void runW2(PrintWriter writer) {
 
         System.out.println();
         System.out.println("===== W2 - Search =====");
 
         for (int n : SIZES) {
 
-            int[] data = generateData(n, SEED);
+            BenchmarkResult arrayResult =
+                    measureW2Array(n);
 
-            int[] queries = generateSearchQueries(
-                    data,
-                    n,
-                    SEED
+            writeResult(
+                    writer,
+                    arrayResult
             );
 
-            BenchmarkResult arrayResult =
-                    benchmarkW2Array(data, queries, n);
-
-            writeResult(writer, arrayResult);
-
             BenchmarkResult listResult =
-                    benchmarkW2List(data, queries, n);
+                    measureW2List(n);
 
-            writeResult(writer, listResult);
+            writeResult(
+                    writer,
+                    listResult
+            );
         }
     }
 
-    private BenchmarkResult benchmarkW2Array(
-            int[] data,
-            int[] queries,
-            int n) {
+    private BenchmarkResult measureW2Array(int n) {
 
-        double[] times = new double[MEASURED_RUNS];
-        long[] steps = new long[MEASURED_RUNS];
-        long[] moves = new long[MEASURED_RUNS];
-        long[] comparisons = new long[MEASURED_RUNS];
+        double[] times =
+                new double[MEASURED_RUNS];
 
-        for (int run = 0; run < TOTAL_RUNS; run++) {
+        long finalSteps = 0;
+        long finalMoves = 0;
+        long finalComparisons = 0;
 
-            Metrics metrics = new Metrics();
-            DynamicArray array = new DynamicArray(metrics);
+        int[] data =
+                generateData(n);
 
-            fillArray(array, data);
+        int[] queries =
+                generateSearchQueries(
+                        data
+                );
+
+        /*
+         * Warm-up.
+         */
+        runW2ArrayOnce(
+                data,
+                queries,
+                false
+        );
+
+        /*
+         * Five measured runs.
+         */
+        for (int run = 0;
+             run < MEASURED_RUNS;
+             run++) {
+
+            Metrics metrics =
+                    new Metrics();
+
+            DynamicArray array =
+                    new DynamicArray(metrics);
+
+            fillArray(
+                    array,
+                    data
+            );
 
             metrics.reset();
 
             metrics.startTimer();
 
-            int found = 0;
-
             for (int query : queries) {
-
-                if (array.contains(query)) {
-                    found++;
-                }
+                array.contains(query);
             }
 
             metrics.stopTimer();
 
-            if (found < 0) {
-                System.out.println("Impossible result.");
-            }
+            times[run] =
+                    metrics.getElapsedTimeMillis();
 
-            if (run > 0) {
+            finalSteps =
+                    metrics.getSteps();
 
-                int position = run - 1;
+            finalMoves =
+                    metrics.getMoves();
 
-                times[position] =
-                        metrics.getElapsedTimeMillis();
-
-                steps[position] =
-                        metrics.getSteps();
-
-                moves[position] =
-                        metrics.getMoves();
-
-                comparisons[position] =
-                        metrics.getComparisons();
-            }
+            finalComparisons =
+                    metrics.getComparisons();
         }
 
-        return createMedianResult(
+        return new BenchmarkResult(
                 "W2",
                 "-",
                 "DynamicArray",
                 n,
-                times,
-                steps,
-                moves,
-                comparisons
+                median(times),
+                finalSteps,
+                finalMoves,
+                finalComparisons
         );
     }
 
-    private BenchmarkResult benchmarkW2List(
-            int[] data,
-            int[] queries,
-            int n) {
+    private BenchmarkResult measureW2List(int n) {
 
-        double[] times = new double[MEASURED_RUNS];
-        long[] steps = new long[MEASURED_RUNS];
-        long[] moves = new long[MEASURED_RUNS];
-        long[] comparisons = new long[MEASURED_RUNS];
+        double[] times =
+                new double[MEASURED_RUNS];
 
-        for (int run = 0; run < TOTAL_RUNS; run++) {
+        long finalSteps = 0;
+        long finalMoves = 0;
+        long finalComparisons = 0;
 
-            Metrics metrics = new Metrics();
-            MyLinkedList list = new MyLinkedList(metrics);
+        int[] data =
+                generateData(n);
 
-            fillList(list, data);
+        int[] queries =
+                generateSearchQueries(
+                        data
+                );
+
+        /*
+         * Warm-up.
+         */
+        runW2ListOnce(
+                data,
+                queries,
+                false
+        );
+
+        /*
+         * Five measured runs.
+         */
+        for (int run = 0;
+             run < MEASURED_RUNS;
+             run++) {
+
+            Metrics metrics =
+                    new Metrics();
+
+            MyLinkedList list =
+                    new MyLinkedList(metrics);
+
+            fillList(
+                    list,
+                    data
+            );
 
             metrics.reset();
 
             metrics.startTimer();
 
-            int found = 0;
-
             for (int query : queries) {
-
-                if (list.contains(query)) {
-                    found++;
-                }
+                list.contains(query);
             }
 
             metrics.stopTimer();
 
-            if (found < 0) {
-                System.out.println("Impossible result.");
-            }
+            times[run] =
+                    metrics.getElapsedTimeMillis();
 
-            if (run > 0) {
+            finalSteps =
+                    metrics.getSteps();
 
-                int position = run - 1;
+            finalMoves =
+                    metrics.getMoves();
 
-                times[position] =
-                        metrics.getElapsedTimeMillis();
-
-                steps[position] =
-                        metrics.getSteps();
-
-                moves[position] =
-                        metrics.getMoves();
-
-                comparisons[position] =
-                        metrics.getComparisons();
-            }
+            finalComparisons =
+                    metrics.getComparisons();
         }
 
-        return createMedianResult(
+        return new BenchmarkResult(
                 "W2",
                 "-",
                 "MyLinkedList",
                 n,
-                times,
-                steps,
-                moves,
-                comparisons
+                median(times),
+                finalSteps,
+                finalMoves,
+                finalComparisons
         );
     }
 
-    // =========================================================
+    // ============================================================
     // W3 - INSERT & REMOVE
-    // =========================================================
+    // ============================================================
 
-    private void runW3(BufferedWriter writer) throws IOException {
+    private void runW3(PrintWriter writer) {
 
         System.out.println();
         System.out.println("===== W3 - Insert & Remove =====");
 
         for (int n : SIZES) {
 
-            int[] data = generateData(n, SEED);
+            BenchmarkResult arrayHead =
+                    measureW3Array(
+                            n,
+                            true
+                    );
 
-            int[] insertedValues = generateData(
-                    W3_OPERATIONS,
-                    SEED + n
+            writeResult(
+                    writer,
+                    arrayHead
             );
 
-            BenchmarkResult arrayHead =
-                    benchmarkW3Array(
-                            data,
-                            insertedValues,
-                            n,
-                            "head"
-                    );
-
-            writeResult(writer, arrayHead);
-
             BenchmarkResult listHead =
-                    benchmarkW3List(
-                            data,
-                            insertedValues,
+                    measureW3List(
                             n,
-                            "head"
+                            true
                     );
 
-            writeResult(writer, listHead);
+            writeResult(
+                    writer,
+                    listHead
+            );
 
             BenchmarkResult arrayMiddle =
-                    benchmarkW3Array(
-                            data,
-                            insertedValues,
+                    measureW3Array(
                             n,
-                            "middle"
+                            false
                     );
 
-            writeResult(writer, arrayMiddle);
+            writeResult(
+                    writer,
+                    arrayMiddle
+            );
 
             BenchmarkResult listMiddle =
-                    benchmarkW3List(
-                            data,
-                            insertedValues,
+                    measureW3List(
                             n,
-                            "middle"
+                            false
                     );
 
-            writeResult(writer, listMiddle);
+            writeResult(
+                    writer,
+                    listMiddle
+            );
         }
     }
 
-    private BenchmarkResult benchmarkW3Array(
-            int[] data,
-            int[] insertedValues,
+    private BenchmarkResult measureW3Array(
             int n,
-            String variant) {
+            boolean head
+    ) {
 
-        double[] times = new double[MEASURED_RUNS];
-        long[] steps = new long[MEASURED_RUNS];
-        long[] moves = new long[MEASURED_RUNS];
-        long[] comparisons = new long[MEASURED_RUNS];
+        double[] times =
+                new double[MEASURED_RUNS];
 
-        for (int run = 0; run < TOTAL_RUNS; run++) {
+        long finalSteps = 0;
+        long finalMoves = 0;
+        long finalComparisons = 0;
 
-            Metrics metrics = new Metrics();
-            DynamicArray array = new DynamicArray(metrics);
+        int[] data =
+                generateData(n);
 
-            fillArray(array, data);
+        int[] insertedValues =
+                generateInsertedValues(
+                        n
+                );
+
+        /*
+         * Warm-up.
+         */
+        runW3ArrayOnce(
+                data,
+                insertedValues,
+                n,
+                head,
+                false
+        );
+
+        /*
+         * Five measured runs.
+         */
+        for (int run = 0;
+             run < MEASURED_RUNS;
+             run++) {
+
+            Metrics metrics =
+                    new Metrics();
+
+            DynamicArray array =
+                    new DynamicArray(metrics);
+
+            fillArray(
+                    array,
+                    data
+            );
+
+            int index;
+
+            if (head) {
+                index = 0;
+            } else {
+                index = n / 2;
+            }
 
             metrics.reset();
 
             metrics.startTimer();
 
-            for (int i = 0; i < W3_OPERATIONS; i++) {
+            for (int i = 0;
+                 i < W3_OPERATIONS;
+                 i++) {
 
-                int index;
-
-                if (variant.equals("head")) {
-                    index = 0;
-                } else {
-                    index = array.size() / 2;
-                }
-
-                array.add(index, insertedValues[i]);
+                array.add(
+                        index,
+                        insertedValues[i]
+                );
             }
 
-            for (int i = 0; i < W3_OPERATIONS; i++) {
-
-                int index;
-
-                if (variant.equals("head")) {
-                    index = 0;
-                } else {
-                    index = array.size() / 2;
-                }
+            for (int i = 0;
+                 i < W3_OPERATIONS;
+                 i++) {
 
                 array.remove(index);
             }
 
             metrics.stopTimer();
 
-            if (run > 0) {
+            times[run] =
+                    metrics.getElapsedTimeMillis();
 
-                int position = run - 1;
+            finalSteps =
+                    metrics.getSteps();
 
-                times[position] =
-                        metrics.getElapsedTimeMillis();
+            finalMoves =
+                    metrics.getMoves();
 
-                steps[position] =
-                        metrics.getSteps();
-
-                moves[position] =
-                        metrics.getMoves();
-
-                comparisons[position] =
-                        metrics.getComparisons();
-            }
+            finalComparisons =
+                    metrics.getComparisons();
         }
 
-        return createMedianResult(
+        return new BenchmarkResult(
                 "W3",
-                variant,
+                head ? "head" : "middle",
                 "DynamicArray",
                 n,
-                times,
-                steps,
-                moves,
-                comparisons
+                median(times),
+                finalSteps,
+                finalMoves,
+                finalComparisons
         );
     }
 
-    private BenchmarkResult benchmarkW3List(
-            int[] data,
-            int[] insertedValues,
+    private BenchmarkResult measureW3List(
             int n,
-            String variant) {
+            boolean head
+    ) {
 
-        double[] times = new double[MEASURED_RUNS];
-        long[] steps = new long[MEASURED_RUNS];
-        long[] moves = new long[MEASURED_RUNS];
-        long[] comparisons = new long[MEASURED_RUNS];
+        double[] times =
+                new double[MEASURED_RUNS];
 
-        for (int run = 0; run < TOTAL_RUNS; run++) {
+        long finalSteps = 0;
+        long finalMoves = 0;
+        long finalComparisons = 0;
 
-            Metrics metrics = new Metrics();
-            MyLinkedList list = new MyLinkedList(metrics);
+        int[] data =
+                generateData(n);
 
-            fillList(list, data);
+        int[] insertedValues =
+                generateInsertedValues(
+                        n
+                );
+
+        /*
+         * Warm-up.
+         */
+        runW3ListOnce(
+                data,
+                insertedValues,
+                n,
+                head,
+                false
+        );
+
+        /*
+         * Five measured runs.
+         */
+        for (int run = 0;
+             run < MEASURED_RUNS;
+             run++) {
+
+            Metrics metrics =
+                    new Metrics();
+
+            MyLinkedList list =
+                    new MyLinkedList(metrics);
+
+            fillList(
+                    list,
+                    data
+            );
+
+            int index;
+
+            if (head) {
+                index = 0;
+            } else {
+                index = n / 2;
+            }
 
             metrics.reset();
 
             metrics.startTimer();
 
-            for (int i = 0; i < W3_OPERATIONS; i++) {
+            for (int i = 0;
+                 i < W3_OPERATIONS;
+                 i++) {
 
-                int index;
-
-                if (variant.equals("head")) {
-                    index = 0;
-                } else {
-                    index = list.size() / 2;
-                }
-
-                list.add(index, insertedValues[i]);
+                list.add(
+                        index,
+                        insertedValues[i]
+                );
             }
 
-            for (int i = 0; i < W3_OPERATIONS; i++) {
-
-                int index;
-
-                if (variant.equals("head")) {
-                    index = 0;
-                } else {
-                    index = list.size() / 2;
-                }
+            for (int i = 0;
+                 i < W3_OPERATIONS;
+                 i++) {
 
                 list.remove(index);
             }
 
             metrics.stopTimer();
 
-            if (run > 0) {
+            times[run] =
+                    metrics.getElapsedTimeMillis();
 
-                int position = run - 1;
+            finalSteps =
+                    metrics.getSteps();
 
-                times[position] =
-                        metrics.getElapsedTimeMillis();
+            finalMoves =
+                    metrics.getMoves();
 
-                steps[position] =
-                        metrics.getSteps();
-
-                moves[position] =
-                        metrics.getMoves();
-
-                comparisons[position] =
-                        metrics.getComparisons();
-            }
+            finalComparisons =
+                    metrics.getComparisons();
         }
 
-        return createMedianResult(
+        return new BenchmarkResult(
                 "W3",
-                variant,
+                head ? "head" : "middle",
                 "MyLinkedList",
                 n,
-                times,
-                steps,
-                moves,
-                comparisons
+                median(times),
+                finalSteps,
+                finalMoves,
+                finalComparisons
         );
     }
 
-    // =========================================================
+    // ============================================================
     // W4 - PRIORITY PROCESSING
-    // =========================================================
+    // ============================================================
 
-    private void runW4(BufferedWriter writer) throws IOException {
+    private void runW4(PrintWriter writer) {
 
         System.out.println();
         System.out.println("===== W4 - Priority Processing =====");
 
         for (int n : SIZES) {
 
-            int[] data = generateData(n, SEED);
-
             BenchmarkResult result =
-                    benchmarkW4Heap(data, n);
+                    measureW4(n);
 
-            writeResult(writer, result);
+            writeResult(
+                    writer,
+                    result
+            );
         }
     }
 
-    private BenchmarkResult benchmarkW4Heap(
-            int[] data,
-            int n) {
+    private BenchmarkResult measureW4(int n) {
 
-        double[] times = new double[MEASURED_RUNS];
-        long[] steps = new long[MEASURED_RUNS];
-        long[] moves = new long[MEASURED_RUNS];
-        long[] comparisons = new long[MEASURED_RUNS];
+        double[] times =
+                new double[MEASURED_RUNS];
 
-        for (int run = 0; run < TOTAL_RUNS; run++) {
+        long finalSteps = 0;
+        long finalMoves = 0;
+        long finalComparisons = 0;
 
-            Metrics metrics = new Metrics();
-            MinHeap heap = new MinHeap(metrics);
+        /*
+         * Same input data for every run.
+         */
+        int[] data =
+                generateData(n);
 
-            for (int value : data) {
-                heap.insert(value);
-            }
+        /*
+         * Warm-up.
+         */
+        runW4Once(
+                data,
+                false
+        );
 
+        /*
+         * Five measured runs.
+         */
+        for (int run = 0;
+             run < MEASURED_RUNS;
+             run++) {
+
+            Metrics metrics =
+                    new Metrics();
+
+            MinHeap heap =
+                    new MinHeap(metrics);
+
+            /*
+             * IMPORTANT:
+             *
+             * The timer starts BEFORE insert().
+             *
+             * Therefore W4 measures:
+             *
+             * 1. insert n values
+             * 2. extractMin n times
+             *
+             * This matches the assignment workload.
+             */
             metrics.reset();
 
             metrics.startTimer();
 
-            int previous = Integer.MIN_VALUE;
+            for (int i = 0;
+                 i < n;
+                 i++) {
 
-            for (int i = 0; i < n; i++) {
+                heap.insert(data[i]);
+            }
 
-                int current = heap.extractMin();
+            int previous =
+                    Integer.MIN_VALUE;
 
-                if (current < previous) {
+            for (int i = 0;
+                 i < n;
+                 i++) {
+
+                int current =
+                        heap.extractMin();
+
+                /*
+                 * Verify non-decreasing output.
+                 */
+                if (i > 0 && current < previous) {
+
                     throw new IllegalStateException(
-                            "Heap output is not sorted."
+                            "MinHeap output is not sorted."
                     );
                 }
 
@@ -652,97 +812,439 @@ public class Benchmark {
 
             metrics.stopTimer();
 
-            if (run > 0) {
+            /*
+             * The heap must be empty after
+             * extracting all n elements.
+             */
+            if (heap.size() != 0) {
 
-                int position = run - 1;
-
-                times[position] =
-                        metrics.getElapsedTimeMillis();
-
-                steps[position] =
-                        metrics.getSteps();
-
-                moves[position] =
-                        metrics.getMoves();
-
-                comparisons[position] =
-                        metrics.getComparisons();
+                throw new IllegalStateException(
+                        "Heap is not empty after W4."
+                );
             }
+
+            times[run] =
+                    metrics.getElapsedTimeMillis();
+
+            finalSteps =
+                    metrics.getSteps();
+
+            finalMoves =
+                    metrics.getMoves();
+
+            finalComparisons =
+                    metrics.getComparisons();
         }
 
-        return createMedianResult(
+        return new BenchmarkResult(
                 "W4",
                 "-",
                 "MinHeap",
                 n,
-                times,
-                steps,
-                moves,
-                comparisons
+                median(times),
+                finalSteps,
+                finalMoves,
+                finalComparisons
         );
     }
 
-    // =========================================================
+    // ============================================================
+    // W1 WARM-UP
+    // ============================================================
+
+    private void runW1ArrayOnce(
+            int[] data,
+            int[] indices,
+            boolean measure
+    ) {
+
+        Metrics metrics =
+                new Metrics();
+
+        DynamicArray array =
+                new DynamicArray(metrics);
+
+        fillArray(
+                array,
+                data
+        );
+
+        if (measure) {
+            metrics.startTimer();
+        }
+
+        for (int index : indices) {
+            array.get(index);
+        }
+
+        if (measure) {
+            metrics.stopTimer();
+        }
+    }
+
+    private void runW1ListOnce(
+            int[] data,
+            int[] indices,
+            boolean measure
+    ) {
+
+        Metrics metrics =
+                new Metrics();
+
+        MyLinkedList list =
+                new MyLinkedList(metrics);
+
+        fillList(
+                list,
+                data
+        );
+
+        if (measure) {
+            metrics.startTimer();
+        }
+
+        for (int index : indices) {
+            list.get(index);
+        }
+
+        if (measure) {
+            metrics.stopTimer();
+        }
+    }
+
+    // ============================================================
+    // W2 WARM-UP
+    // ============================================================
+
+    private void runW2ArrayOnce(
+            int[] data,
+            int[] queries,
+            boolean measure
+    ) {
+
+        Metrics metrics =
+                new Metrics();
+
+        DynamicArray array =
+                new DynamicArray(metrics);
+
+        fillArray(
+                array,
+                data
+        );
+
+        if (measure) {
+            metrics.startTimer();
+        }
+
+        for (int query : queries) {
+            array.contains(query);
+        }
+
+        if (measure) {
+            metrics.stopTimer();
+        }
+    }
+
+    private void runW2ListOnce(
+            int[] data,
+            int[] queries,
+            boolean measure
+    ) {
+
+        Metrics metrics =
+                new Metrics();
+
+        MyLinkedList list =
+                new MyLinkedList(metrics);
+
+        fillList(
+                list,
+                data
+        );
+
+        if (measure) {
+            metrics.startTimer();
+        }
+
+        for (int query : queries) {
+            list.contains(query);
+        }
+
+        if (measure) {
+            metrics.stopTimer();
+        }
+    }
+
+    // ============================================================
+    // W3 WARM-UP
+    // ============================================================
+
+    private void runW3ArrayOnce(
+            int[] data,
+            int[] insertedValues,
+            int n,
+            boolean head,
+            boolean measure
+    ) {
+
+        Metrics metrics =
+                new Metrics();
+
+        DynamicArray array =
+                new DynamicArray(metrics);
+
+        fillArray(
+                array,
+                data
+        );
+
+        int index =
+                head ? 0 : n / 2;
+
+        if (measure) {
+            metrics.startTimer();
+        }
+
+        for (int i = 0;
+             i < W3_OPERATIONS;
+             i++) {
+
+            array.add(
+                    index,
+                    insertedValues[i]
+            );
+        }
+
+        for (int i = 0;
+             i < W3_OPERATIONS;
+             i++) {
+
+            array.remove(index);
+        }
+
+        if (measure) {
+            metrics.stopTimer();
+        }
+    }
+
+    private void runW3ListOnce(
+            int[] data,
+            int[] insertedValues,
+            int n,
+            boolean head,
+            boolean measure
+    ) {
+
+        Metrics metrics =
+                new Metrics();
+
+        MyLinkedList list =
+                new MyLinkedList(metrics);
+
+        fillList(
+                list,
+                data
+        );
+
+        int index =
+                head ? 0 : n / 2;
+
+        if (measure) {
+            metrics.startTimer();
+        }
+
+        for (int i = 0;
+             i < W3_OPERATIONS;
+             i++) {
+
+            list.add(
+                    index,
+                    insertedValues[i]
+            );
+        }
+
+        for (int i = 0;
+             i < W3_OPERATIONS;
+             i++) {
+
+            list.remove(index);
+        }
+
+        if (measure) {
+            metrics.stopTimer();
+        }
+    }
+
+    // ============================================================
+    // W4 WARM-UP
+    // ============================================================
+
+    private void runW4Once(
+            int[] data,
+            boolean measure
+    ) {
+
+        Metrics metrics =
+                new Metrics();
+
+        MinHeap heap =
+                new MinHeap(metrics);
+
+        if (measure) {
+            metrics.startTimer();
+        }
+
+        for (int value : data) {
+            heap.insert(value);
+        }
+
+        int previous =
+                Integer.MIN_VALUE;
+
+        for (int i = 0;
+             i < data.length;
+             i++) {
+
+            int current =
+                    heap.extractMin();
+
+            if (i > 0 && current < previous) {
+
+                throw new IllegalStateException(
+                        "MinHeap output is not sorted."
+                );
+            }
+
+            previous = current;
+        }
+
+        if (measure) {
+            metrics.stopTimer();
+        }
+    }
+
+    // ============================================================
     // DATA GENERATION
-    // =========================================================
+    // ============================================================
 
-    private int[] generateData(int n, int seed) {
+    private int[] generateData(int n) {
 
-        Random random = new Random(seed);
+        int[] data =
+                new int[n];
 
-        int[] data = new int[n];
+        Random random =
+                new Random(RANDOM_SEED);
 
-        for (int i = 0; i < n; i++) {
-            data[i] = random.nextInt();
+        for (int i = 0;
+             i < n;
+             i++) {
+
+            data[i] =
+                    random.nextInt();
         }
 
         return data;
     }
 
-    private int[] generateRandomIndices(
+    private int[] generateIndices(
             int n,
-            int count,
-            int seed) {
+            int count
+    ) {
 
-        Random random = new Random(seed);
+        int[] indices =
+                new int[count];
 
-        int[] indices = new int[count];
+        Random random =
+                new Random(RANDOM_SEED);
 
-        for (int i = 0; i < count; i++) {
-            indices[i] = random.nextInt(n);
+        for (int i = 0;
+             i < count;
+             i++) {
+
+            indices[i] =
+                    random.nextInt(n);
         }
 
         return indices;
     }
 
-    private int[] generateSearchQueries(
-            int[] data,
-            int n,
-            int seed) {
+    private int[] generateInsertedValues(
+            int n
+    ) {
 
-        Random random = new Random(seed + 1000);
+        int[] values =
+                new int[W3_OPERATIONS];
 
-        int[] queries = new int[W2_OPERATIONS];
+        Random random =
+                new Random(RANDOM_SEED);
 
-        // First half: values that are present.
-        for (int i = 0; i < W2_OPERATIONS / 2; i++) {
+        /*
+         * Generate deterministic values.
+         */
+        for (int i = 0;
+             i < W3_OPERATIONS;
+             i++) {
 
-            int randomIndex = random.nextInt(n);
-
-            queries[i] = data[randomIndex];
+            values[i] =
+                    random.nextInt();
         }
 
-        // Second half: values that are not present.
+        return values;
+    }
+
+    // ============================================================
+    // SEARCH QUERIES
+    // ============================================================
+
+    private int[] generateSearchQueries(
+            int[] data
+    ) {
+
+        int[] queries =
+                new int[W2_OPERATIONS];
+
+        Random random =
+                new Random(RANDOM_SEED + 1000);
+
+        /*
+         * First 500 queries are PRESENT.
+         */
+        for (int i = 0;
+             i < W2_OPERATIONS / 2;
+             i++) {
+
+            int index =
+                    random.nextInt(
+                            data.length
+                    );
+
+            queries[i] =
+                    data[index];
+        }
+
+        /*
+         * Second 500 queries are ABSENT.
+         */
+        int candidate =
+                Integer.MIN_VALUE;
+
         for (int i = W2_OPERATIONS / 2;
              i < W2_OPERATIONS;
              i++) {
 
-            queries[i] = Integer.MIN_VALUE;
+            while (containsValue(
+                    data,
+                    candidate
+            )) {
 
-            while (containsValue(data, queries[i])) {
-
-                queries[i] = random.nextInt();
+                candidate++;
             }
+
+            queries[i] =
+                    candidate;
+
+            candidate++;
         }
 
         return queries;
@@ -750,7 +1252,8 @@ public class Benchmark {
 
     private boolean containsValue(
             int[] data,
-            int value) {
+            int value
+    ) {
 
         for (int element : data) {
 
@@ -762,13 +1265,14 @@ public class Benchmark {
         return false;
     }
 
-    // =========================================================
+    // ============================================================
     // FILL STRUCTURES
-    // =========================================================
+    // ============================================================
 
     private void fillArray(
             DynamicArray array,
-            int[] data) {
+            int[] data
+    ) {
 
         for (int value : data) {
             array.add(value);
@@ -777,59 +1281,57 @@ public class Benchmark {
 
     private void fillList(
             MyLinkedList list,
-            int[] data) {
+            int[] data
+    ) {
 
         for (int value : data) {
             list.add(value);
         }
     }
 
-    // =========================================================
+    // ============================================================
     // MEDIAN
-    // =========================================================
+    // ============================================================
 
-    private BenchmarkResult createMedianResult(
-            String workload,
-            String variant,
-            String structure,
-            int n,
-            double[] times,
-            long[] steps,
-            long[] moves,
-            long[] comparisons) {
+    private double median(
+            double[] values
+    ) {
 
-        double medianTime = median(times);
+        double[] copy =
+                new double[values.length];
 
-        long medianSteps = median(steps);
-        long medianMoves = median(moves);
-        long medianComparisons = median(comparisons);
+        for (int i = 0;
+             i < values.length;
+             i++) {
 
-        return new BenchmarkResult(
-                workload,
-                variant,
-                structure,
-                n,
-                medianTime,
-                medianSteps,
-                medianMoves,
-                medianComparisons
-        );
-    }
+            copy[i] =
+                    values[i];
+        }
 
-    private double median(double[] values) {
+        /*
+         * Simple bubble sort.
+         *
+         * Only five values are sorted,
+         * so this is completely sufficient.
+         */
+        for (int i = 0;
+             i < copy.length - 1;
+             i++) {
 
-        double[] copy = values.clone();
-
-        for (int i = 0; i < copy.length - 1; i++) {
-
-            for (int j = 0; j < copy.length - i - 1; j++) {
+            for (int j = 0;
+                 j < copy.length - 1 - i;
+                 j++) {
 
                 if (copy[j] > copy[j + 1]) {
 
-                    double temp = copy[j];
+                    double temp =
+                            copy[j];
 
-                    copy[j] = copy[j + 1];
-                    copy[j + 1] = temp;
+                    copy[j] =
+                            copy[j + 1];
+
+                    copy[j + 1] =
+                            temp;
                 }
             }
         }
@@ -837,66 +1339,36 @@ public class Benchmark {
         return copy[copy.length / 2];
     }
 
-    private long median(long[] values) {
-
-        long[] copy = values.clone();
-
-        for (int i = 0; i < copy.length - 1; i++) {
-
-            for (int j = 0; j < copy.length - i - 1; j++) {
-
-                if (copy[j] > copy[j + 1]) {
-
-                    long temp = copy[j];
-
-                    copy[j] = copy[j + 1];
-                    copy[j + 1] = temp;
-                }
-            }
-        }
-
-        return copy[copy.length / 2];
-    }
-
-    // =========================================================
-    // CSV
-    // =========================================================
+    // ============================================================
+    // WRITE CSV
+    // ============================================================
 
     private void writeResult(
-            BufferedWriter writer,
-            BenchmarkResult result) throws IOException {
+            PrintWriter writer,
+            BenchmarkResult result
+    ) {
 
-        writer.write(
-                result.getWorkload() + "," +
-                        result.getVariant() + "," +
-                        result.getStructure() + "," +
-                        result.getN() + "," +
-                        String.format(
-                                java.util.Locale.US,
-                                "%.6f",
-                                result.getTimeMs()
-                        ) + "," +
-                        result.getSteps() + "," +
-                        result.getMoves() + "," +
-                        result.getComparisons()
+        writer.printf(
+                Locale.US,
+                "%s,%s,%s,%d,%.6f,%d,%d,%d%n",
+                result.getWorkload(),
+                result.getVariant(),
+                result.getStructure(),
+                result.getN(),
+                result.getTimeMs(),
+                result.getSteps(),
+                result.getMoves(),
+                result.getComparisons()
         );
 
-        writer.newLine();
-
-        System.out.println(
-                result.getWorkload() +
-                        " | " +
-                        result.getVariant() +
-                        " | " +
-                        result.getStructure() +
-                        " | n=" +
-                        result.getN() +
-                        " | " +
-                        String.format(
-                                java.util.Locale.US,
-                                "%.4f ms",
-                                result.getTimeMs()
-                        )
+        System.out.printf(
+                Locale.US,
+                "%s | %s | %s | n=%d | time=%.6f ms%n",
+                result.getWorkload(),
+                result.getStructure(),
+                result.getVariant(),
+                result.getN(),
+                result.getTimeMs()
         );
     }
 }
