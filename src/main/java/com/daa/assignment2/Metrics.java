@@ -53,7 +53,7 @@ public class Metrics {
         elapsedTime = System.nanoTime() - startTime;
     }
 
-    public long getElapsedTime() {
+    public long getElapsedTimeNanos() {
         return elapsedTime;
     }
 
