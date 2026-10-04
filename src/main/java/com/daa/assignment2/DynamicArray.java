@@ -7,7 +7,14 @@ public class DynamicArray implements DataStructure {
 
     private static final int DEFAULT_CAPACITY = 10;
 
+    private Metrics metrics;
+
     public DynamicArray() {
+        this(new Metrics());
+    }
+
+    public DynamicArray(Metrics metrics) {
+        this.metrics = metrics;
         data = new int[DEFAULT_CAPACITY];
         size = 0;
     }
@@ -34,8 +41,10 @@ public class DynamicArray implements DataStructure {
 
         for (int i = size; i > index; i--) {
 
+            metrics.incrementSteps();
             data[i] = data[i - 1];
 
+            metrics.incrementMoves();
         }
 
         data[index] = x;
@@ -48,12 +57,15 @@ public class DynamicArray implements DataStructure {
 
         checkElementIndex(index);
 
+        metrics.incrementSteps();
         int removed = data[index];
 
         for (int i = index; i < size - 1; i++) {
 
+            metrics.incrementSteps();
             data[i] = data[i + 1];
 
+            metrics.incrementMoves();
         }
 
         size--;
@@ -66,6 +78,8 @@ public class DynamicArray implements DataStructure {
 
         checkElementIndex(index);
 
+        metrics.incrementSteps();
+
         return data[index];
     }
 
@@ -73,6 +87,9 @@ public class DynamicArray implements DataStructure {
     public boolean contains(int x) {
 
         for (int i = 0; i < size; i++) {
+
+            metrics.incrementSteps();
+            metrics.incrementComparisons();
 
             if (data[i] == x) {
                 return true;
@@ -94,7 +111,12 @@ public class DynamicArray implements DataStructure {
         int[] newData = new int[newCapacity];
 
         for (int i = 0; i < size; i++) {
+
+            metrics.incrementSteps();
+
             newData[i] = data[i];
+
+            metrics.incrementMoves();
         }
 
         data = newData;

@@ -4,26 +4,26 @@ public class Main {
 
     public static void main(String[] args) {
 
-        DynamicArray array = new DynamicArray();
+        MyLinkedList list = new MyLinkedList();
 
-        array.add(10);
-        array.add(20);
-        array.add(30);
+        list.add(10);
+        list.add(20);
+        list.add(30);
 
-        array.add(1, 15);
+        list.add(1, 15);
 
-        System.out.println(array.get(0));
-        System.out.println(array.get(1));
-        System.out.println(array.get(2));
-        System.out.println(array.get(3));
+        System.out.println(list.get(0));
+        System.out.println(list.get(1));
+        System.out.println(list.get(2));
+        System.out.println(list.get(3));
 
         System.out.println("Contains 20: "
-                + array.contains(20));
+                + list.contains(20));
 
         System.out.println("Removed: "
-                + array.remove(2));
+                + list.remove(2));
 
         System.out.println("Size: "
-                + array.size());
+                + list.size());
     }
 }
